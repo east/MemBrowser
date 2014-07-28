@@ -3,7 +3,7 @@ var WebSocketServer = require("ws").Server;
 var wss;
 
 //TESTING
-var procId = 7665;
+var procId = 3031;
 
 function readMem(pid, offs, size) {
 	var f = fs.openSync("/proc/"+pid+"/mem", "r")
@@ -82,7 +82,7 @@ function onMsg(ws, msg) {
 		if (mem == null)
 			console.log("failed to read mem", msg.data.offs, msg.data.size);
 		
-		respMsg(ws, msg, mem);
+		respMsg(ws, msg, { offs: msg.data.offs, data: mem });
 	}
 }
 

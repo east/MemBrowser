@@ -31,6 +31,17 @@ function arraysEqual(arr1, arr2) {
 	return (arr1.length == arr2.length && arr1.every(function(u, i) { return u === arr2[i]; }));
 }
 
+function clamp(num, min, max) {
+	return Math.min(Math.max(num, min), max);
+}
+
+function preZero(str, num) {
+	var len = str.length;
+	for (var i = 0; i < num-len; i++)
+		str = "0"+str;
+	return str;
+}
+
 WatchPoint.prototype.update = function() {
 	var self = this;
 	reqMem(this.offs, 4, function(mem) {
@@ -38,12 +49,12 @@ WatchPoint.prototype.update = function() {
 			// compare
 			var equal = false;
 			
-			if (self.curVar != undefined && arraysEqual(self.curVar, mem))
+			if (self.curVar != undefined && arraysEqual(self.curVar, mem.data))
 				equal = true;
 
 			if (!equal) {
 				self.prevVar = self.curVar;
-				self.curVar = mem;
+				self.curVar = mem.data;
 				self.lastChange = new Date();
 				self.buildValueStr();
 				self.wlist.pointChanged(this);
@@ -163,7 +174,7 @@ function WatchList() {
 WatchList.prototype.addPoint = function(offs, varType) {
 	var w = new WatchPoint(this, this.vars.length, offs, varType);
 	this.vars.push(w);
-	console.log("watchpoint added", w);
+	//console.log("watchpoint added", w);
 }
 
 WatchList.prototype.pointChanged = function(p) {
@@ -201,7 +212,7 @@ VMemRange.prototype.viewEndAddr = function() {
 	return this.offs + this.curRow * 16 + this.numRows;
 }
 
-function MemRange(offs, size, cb) {
+/*function MemRange(offs, size, cb) {
 	this.size = size;
 	this.data = [];
 	this.offs = offs;
@@ -218,28 +229,70 @@ MemRange.prototype.update = function() {
 	var self = this;
 
 	reqMem(this.offs, this.size, function(mem) {
-		self.data = mem;
+		for (var i = 0; i < self.size; i++) {
+			self.data[this.offs+i] = mem[i];
+		}
+
 		self.cb(this);
 	});
 
 	setTimeout(function() { self.update(); }, this.interval);
-}
+}*/
 
 function MemHandler(hView) {
 	this.hView = hView;
-	this.memRanges = [];
+	this.data = [];
+	this.interval = 500;
+	this.minInterval = 100;
+	this.offs = undefined;
+	this.size = undefined;
+	this.lastReq = new Date();
+
+	this.update();
 }
 
 MemHandler.prototype.loadAreaAround = function(addr) {
 	var self = this;
 	// select big enough area for hexview
-	var mem = new MemRange(addr-this.hView.pageSize, this.hView.pageSize*2, function() {
-		self.hView.memUpdate();
+	/*var mem = new MemRange(addr-this.hView.pageSize, this.hView.pageSize*2, function() {
 	});
-	this.memRanges.push(mem);
+	this.memRanges.push(mem);*/
+
+	this.offs = addr-this.hView.pageSize;
+	this.size = this.hView.pageSize*2;
+
+	// quick request
+	this.reqData();
 }
 
-MemHandler.prototype.getRange = function(offs, size) {
+MemHandler.prototype.update = function() {
+	var self = this;
+
+	if (this.offs != undefined) {
+		this.reqData();
+	}
+
+	setTimeout(function() { self.update(); }, this.interval);
+}
+
+MemHandler.prototype.reqData = function() {
+	var self = this;
+	var now = new Date();
+
+	if (this.offs != undefined && now-this.lastReq >= this.minInterval) {
+		this.lastReq = now;
+
+		reqMem(this.offs, this.size, function(mem) {
+			for (var i = 0; i < mem.data.length; i++) {
+				self.data[mem.offs+i] = mem.data[i];
+			}
+		
+			self.hView.memUpdate();
+		});
+	}
+}
+
+/*MemHandler.prototype.getRange = function(offs, size) {
 	var curData = [];
 	var start = offs;
 	var end = offs+size;
@@ -283,7 +336,7 @@ MemHandler.prototype.getRange = function(offs, size) {
 	}
 
 	return curData;
-}
+}*/
 
 function HexView(cols, rows, mem) {
 	var self = this;
@@ -298,59 +351,69 @@ function HexView(cols, rows, mem) {
 
 	// key events
 	this.element.onkeydown = function(e) {
-		if (e.keyCode == 40) {
-			// arrow down
-			if (self.mem) {
-				self.goToAddr(self.realOffs+self.width);
-			}
-		} else if (e.keyCode == 38) {
-			// arrow up
-			if (self.mem) {
-				self.goToAddr(self.realOffs-self.width);
-			}
-		} else if (e.keyCode == 33) {
-			// page up
-			if (self.mem) {
-				self.goToAddr(self.realOffs-self.pageSize);
-			}
-		} else if (e.keyCode == 34) {
-			// page down
-			if (self.mem) {
-				self.goToAddr(self.realOffs+self.pageSize);
-			}
+		switch (e.keyCode) {
+			case 40: // arrow down
+				self.moveCursor(0, 1);
+			break;
+			case 38: // arrow up
+				self.moveCursor(0, -1);
+			break;
+			case 39: // arrow right
+				self.moveCursor(1, 0);
+			break;
+			case 37: // arrow left
+				self.moveCursor(-1, 0);
+			break;
+			case 33: // page up
+				self.goToAddr(self.realOffs-self.pageSize);	
+			break;
+			case 34: // page down
+				self.goToAddr(self.realOffs+self.pageSize);	
+			break;
 		}
 
-		self.update();
+		self.updateMarks();
 	}
 
 	this.addrLen = 8;
 
-	this.realOffs;
-	this.curData = [];
+	this.realOffs = undefined;
 
 	this.cursorX = 0;
 	this.cursorY = 0;
 
 	this.build();
-	//this.update();
 }
 
-function preZero(str, num) {
-	var len = str.length;
-	for (var i = 0; i < num-len; i++)
-		str = "0"+str;
-	return str;
+HexView.prototype.moveCursor = function(x, y) {
+	this.cursorX += x;
+
+	if (this.cursorX < 0) {
+		this.cursorX += this.width;
+	} else if (this.cursorX > this.width-1) {
+		this.cursorX -= this.width;	
+	}
+
+	this.cursorY += y;
+
+	// check whether we need to move the whole frame
+	if (this.cursorY < 0) {
+		this.goToAddr(this.realOffs-this.width);	
+	} else if (this.cursorY > this.height-1) {
+		this.goToAddr(this.realOffs+this.width);	
+	}
+
+	this.cursorY = clamp(this.cursorY, 0, this.height-1);
 }
 
 HexView.prototype.goToAddr = function(addr) {
-	this.realOffs = addr;
+	var addrAligned = addr - addr%0x10;
+	this.realOffs = addrAligned;
 	this.mem.loadAreaAround(addr);
 }
 
 HexView.prototype.memUpdate = function() {
-	this.data = this.mem.getRange(this.realOffs, this.pageSize);
-	if (this.data != null || this.data.length != this.pageSize)
-		this.update();
+	this.update();
 }
 
 HexView.prototype.build = function() {
@@ -381,7 +444,7 @@ HexView.prototype.build = function() {
 			cell.classList.add("hc"+x+"_"+y);
 			row.appendChild(cell)
 			
-			cell.innerHTML = "GG"
+			cell.innerHTML = "XX"
 		}
 		
 		// spacer
@@ -400,33 +463,70 @@ HexView.prototype.build = function() {
 	}
 }
 
-HexView.prototype.update = function() {
+// only update colors and style of cells
+HexView.prototype.updateMarks = function() {
+	// draw cursor
 	for (var y = 0; y < this.height; y++) {
 		for (var x = 0; x < this.width; x++) {
+			var isCursor = this.cursorX == x && this.cursorY == y;
+
+			var hCell = this.element.getElementsByClassName("hc"+x+"_"+y)[0]; // hex
+			var aCell = this.element.getElementsByClassName("ac"+x+"_"+y)[0]; // ascii
+
+			// cursor
+			// style
+			if (isCursor)
+			{
+				hCell.style.backgroundColor = "blue";
+				aCell.style.backgroundColor = "blue";
+			}
+			else
+			{
+				hCell.style.backgroundColor = "";
+				aCell.style.backgroundColor = "";
+			}
+		}
+	}
+}
+
+HexView.prototype.update = function() {
+	if (this.realOffs == undefined)
+		return; // can't progress without defined offset
+
+	for (var y = 0; y < this.height; y++) {
+		for (var x = 0; x < this.width; x++) {
+			var isCursor = this.cursorX == x && this.cursorY == y;
+			var absOffs = this.realOffs+16*y+x;
+
 			// address
 			var field = this.element.getElementsByClassName("fr"+y)[0];
-			field.innerHTML = preZero((this.realOffs+y*16).toString(16), 8)
+			field.innerHTML = preZero((this.realOffs+y*16).toString(16).toUpperCase(), 8)
 			
 			// hex cell
 			var cell = this.element.getElementsByClassName("hc"+x+"_"+y)[0];
-			var val = this.data[16*y+x]
-			
-			if (val <= 0xf)
-				cell.innerHTML = "0"+val.toString(16)
+
+			var val = this.mem.data[absOffs];
+		
+			if (val == undefined)
+				cell.innerHTML = "XX"
 			else
-				cell.innerHTML = val.toString(16)
-			
+				cell.innerHTML = preZero(val.toString(16).toUpperCase(), 2);
+
 			// ascii cell
 			var cell = this.element.getElementsByClassName("ac"+x+"_"+y)[0];
 			
 			var c;
-			if (val < 0x20 || val > 0x7f)
+			if (val == undefined)
+				c = "_";
+			else if (val < 0x20 || val > 0x7f)
 				c = "."
 			else
 				c = String.fromCharCode(val)
 			cell.innerHTML = c
 		}
 	}
+
+	this.updateMarks();
 }
 
 var netEvents = [];
