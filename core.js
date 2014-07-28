@@ -385,7 +385,14 @@ function HexView(cols, rows, mem) {
 	this.build();
 }
 
-HexView.prototype.moveCursor = function(x, y) {
+HexView.prototype.moveCursor = function(x, y, rel) {
+
+	if (typeof rel != 'undefined' && rel != true) {
+		// absolute
+		this.cursorX = 0;
+		this.cursorY = 0;
+	}
+
 	this.cursorX += x;
 
 	if (this.cursorX < 0) {
@@ -408,7 +415,10 @@ HexView.prototype.moveCursor = function(x, y) {
 
 HexView.prototype.goToAddr = function(addr) {
 	var addrAligned = addr - addr%0x10;
+
 	this.realOffs = addrAligned;
+	this.moveCursor(addr-addrAligned, 0, false);
+
 	this.mem.loadAreaAround(addr);
 }
 
@@ -417,6 +427,7 @@ HexView.prototype.memUpdate = function() {
 }
 
 HexView.prototype.build = function() {
+	var self = this;
 	var tbl = document.createElement("table");
 	this.element.appendChild(tbl);
 
@@ -461,10 +472,56 @@ HexView.prototype.build = function() {
 			cell.innerHTML = "_"
 		}
 	}
+
+	// infobox
+	var row = document.createElement("tr");
+	tbl.appendChild(row);
+	var cell = document.createElement("td");
+	cell.colSpan = "35";
+	row.appendChild(cell);
+
+	var label = document.createElement("label");
+	label.classList.add("curOffs");
+
+	label.innerHTML = "Offset: 0x00000000"
+
+	cell.appendChild(label);
+
+	// goto box
+	row = document.createElement("tr");
+	tbl.appendChild(row);
+	cell = document.createElement("td");
+	cell.colSpan = "35";
+	row.appendChild(cell);
+
+	var gotoEdit = document.createElement("input");
+
+	gotoEdit.style.backgroundColor = "#000";
+	gotoEdit.style.color = "#fff";
+	gotoEdit.style.fontSize = "8pt";
+	gotoEdit.type = "input";
+
+	gotoEdit.onkeydown = function(e) {
+		if (e.keyCode == 13) {
+			var offs = parseInt(gotoEdit.value, 16);
+			if (offs != NaN)
+				self.goToAddr(offs);		
+		}
+	}
+
+	cell.appendChild(gotoEdit);
 }
 
-// only update colors and style of cells
+HexView.prototype.cursorOffset = function() {
+	return this.realOffs + this.cursorY*this.width + this.cursorX;
+}
+
+// only update colors and style of cells and info box
 HexView.prototype.updateMarks = function() {
+	// info box
+	var labelOffs = this.element.getElementsByClassName("curOffs")[0];
+	labelOffs.innerHTML = "Offset: "+preZero(this.cursorOffset().toString(16).toUpperCase(), 8);
+
 	// draw cursor
 	for (var y = 0; y < this.height; y++) {
 		for (var x = 0; x < this.width; x++) {
@@ -614,7 +671,8 @@ function init() {
 
 	wlist.addPoint(0x00da82d4, "float32");
 	wlist.addPoint(0x00da82d0, "float32");
-	wlist.addPoint(0xe523d44, "pointer");
+
+	wlist.addPoint(0x0F0E9630, "float32");
 
 	document.getElementById("wpointsframe").appendChild(wlist.element);
 }
