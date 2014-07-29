@@ -1,9 +1,23 @@
+var exec = require("child_process").exec;
+var sys = require("sys");
 var fs = require("fs");
 var WebSocketServer = require("ws").Server;
 var wss;
 
 //TESTING
-var procId = 3031;
+var procId = 910;
+
+// get pid of wow
+exec("xdotool search --name \"World of Warcraft\" getwindowpid", function (error, stdout, stderr) {
+	var p = stdout.split("\n");
+
+	if (p.length == 2) {
+		procId = p[0];
+		runSrv();
+	} else {
+		console.log("wow not found");
+	}
+});
 
 function readMem(pid, offs, size) {
 	var f = fs.openSync("/proc/"+pid+"/mem", "r")
@@ -99,9 +113,4 @@ function runSrv() {
 
 	//console.log("mem", readMem(procId, 0x00da82d4, 4));
 }
-
-// before 0xeec0bfc
-// after 0xde90bfc
-
-runSrv();
 

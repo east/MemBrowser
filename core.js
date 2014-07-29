@@ -1,14 +1,18 @@
 var ws;
 
-function WatchPoint(wlist, id, offs, varType) {
+var winToken = 0;
+
+function newWinToken() { return winToken++; }
+
+function WatchPoint(wlist, offs, varType, id) {
 	this.wlist = wlist;
-	this.id = id;
 	this.offs = offs;
 	this.varType = varType;
 	this.prevVar = undefined;
 	this.curVar = undefined;
 	this.lastChange = undefined;
 	this.valueStr = undefined;
+	this.id = id;
 	
 	switch(varType) {
 		case "int32":
@@ -91,7 +95,11 @@ WatchPoint.prototype.buildValueStr = function() {
 }
 
 function WatchPointsView() {
-	this.element = document.createElement("table");
+	this.element = document.createElement("div");
+
+	this.table = document.createElement("table");
+	this.element.appendChild(this.table);
+
 	this.list = new WatchList();
 
 	var self = this;
@@ -100,9 +108,33 @@ function WatchPointsView() {
 	}
 
 	var row = document.createElement("tr");
-	this.element.appendChild(row);
+	this.table.appendChild(row);
 	var col;
-	
+
+	// checkbox
+	var c = document.createElement("input");
+	c.type = "checkbox";
+	c.onclick = function() {
+		var cbs = self.table.getElementsByClassName("wcbox");
+
+		if (c.checked) {
+			for (i in cbs) {
+				cbs[i].checked = true;
+			}
+		}
+		else {
+			for (i in cbs) {
+				cbs[i].checked = false;
+			}
+		}
+	}
+
+	col = document.createElement("th");
+	col.innerHTML = "";
+	col.style.width = "";
+	col.style.textAlign = "left";
+	col.appendChild(c);
+	row.appendChild(col);
 	// address
 	col = document.createElement("th");
 	col.innerHTML = "Address";
@@ -122,19 +154,92 @@ function WatchPointsView() {
 	col.style.textAlign = "left";
 	row.appendChild(col);
 
+	// input field
+	var input = document.createElement("input");
+	input.type = "text";
+	input.style.backgroundColor = "#000";
+	input.style.color = "#fff";
+	input.style.fontSize = "8pt";
+	input.style.width = "100px";
+	this.element.appendChild(input);
+
+	input.onkeydown = function(e) {
+		if (e.keyCode == 13) {
+			var ps = input.value.split(":");
+			
+			self.addPoint(parseInt(ps[1], 16), ps[0]);
+		}
+	}
+
+	// delete button
+	var del = document.createElement("input");
+	del.type = "button";
+	del.value = "Del Selection";
+	del.style.fontSize = "8pt";
+	del.style.backgroundColor = "#000";
+	del.style.color = "#fff";
+	this.element.appendChild(del);
+
+	del.onclick = function() {
+		self.delSelection();
+	}
+
 	this.list.run();
 }
 
+WatchPointsView.prototype.buildList = function() {
+
+}
+
+WatchPointsView.prototype.getSelection = function() {
+	var selection = [];
+	var b = this.table.getElementsByClassName("wcbox");
+
+	for (var i = 0; i < b.length; i++) {
+		if (b[i].checked)
+			selection.push(b[i]);
+	}
+
+	return selection;
+}
+
+WatchPointsView.prototype.delSelection = function() {
+	var sel = this.getSelection();
+
+	for (var i = 0; i < sel.length; i++) {
+		// remove selected vars from list
+		this.list.removeId(sel[i].wId);
+	}
+
+	// clear table
+	while (this.table.firstChild.nextSibling)
+		this.table.removeChild(this.table.firstChild.nextSibling);
+
+
+	this.update();
+}
+
 WatchPointsView.prototype.update = function() {
-	for (i in this.list.vars) {
-		var row = this.element.getElementsByClassName("wp"+i)[0];
+	for (var i = 0; i < this.list.vars.length; i++) {
+		var row = this.table.getElementsByClassName("wp"+this.list.vars[i].id)[0];
 		var curVar = this.list.vars[i];
 
 		if (!row) {
 			// doesn't exist yet, create new row
 			row = document.createElement("tr");
-			row.classList.add("wp"+curVar.id);
+			row.wId = this.list.vars[i].id;
+			row.classList.add("wp"+this.list.vars[i].id);
 
+			// checkbox
+			var col = document.createElement("td");
+			var c = document.createElement("input");
+			c.type = "checkbox";
+			c.classList.add("c"+i);
+			c.classList.add("wcbox");
+			c.wId = this.list.vars[i].id;
+			col.appendChild(c);
+			row.appendChild(col);
+			
 			// address
 			var col = document.createElement("td");
 			col.innerHTML = "addr";
@@ -148,18 +253,31 @@ WatchPointsView.prototype.update = function() {
 			col.innerHTML = "value";
 			row.appendChild(col);
 
-			this.element.appendChild(row);
+			this.table.appendChild(row);
 		}
 
 		var cols = row.getElementsByTagName("td");
 
-		cols[0].innerHTML = preZero(curVar.offs.toString(16), 8); 
-		cols[1].innerHTML = curVar.varType; 
-		cols[2].innerHTML = curVar.valueStr; 
+		cols[1].innerHTML = preZero(curVar.offs.toString(16), 8); 
+		cols[2].innerHTML = curVar.varType; 
+		cols[3].innerHTML = curVar.valueStr; 
 	}
 }
 
 WatchPointsView.prototype.addPoint = function(offs, varType) {
+	switch (varType) {
+		case "int32":
+		case "float32":
+		case "uint32":
+		case "pointer":
+		case "int64":
+		case "uint64":
+		case "float64":
+		break;
+		default:
+			console.log("invalid vartype", varType);
+			return;
+	}
 	this.list.addPoint(offs, varType);
 	this.update();
 }
@@ -172,9 +290,17 @@ function WatchList() {
 }
 
 WatchList.prototype.addPoint = function(offs, varType) {
-	var w = new WatchPoint(this, this.vars.length, offs, varType);
+	var w = new WatchPoint(this, offs, varType, newWinToken());
 	this.vars.push(w);
-	//console.log("watchpoint added", w);
+}
+
+WatchList.prototype.removeId = function(id) {
+	for (i in this.vars) {
+		if (this.vars[i].id == id) {
+			this.vars.splice(i, 1);
+			break;
+		}
+	}
 }
 
 WatchList.prototype.pointChanged = function(p) {
@@ -405,19 +531,21 @@ HexView.prototype.moveCursor = function(x, y, rel) {
 
 	// check whether we need to move the whole frame
 	if (this.cursorY < 0) {
-		this.goToAddr(this.realOffs-this.width);	
+		this.goToAddr(this.realOffs-this.width, false);	
 	} else if (this.cursorY > this.height-1) {
-		this.goToAddr(this.realOffs+this.width);	
+		this.goToAddr(this.realOffs+this.width, false);	
 	}
 
 	this.cursorY = clamp(this.cursorY, 0, this.height-1);
 }
 
-HexView.prototype.goToAddr = function(addr) {
+HexView.prototype.goToAddr = function(addr, fixCursor) {
 	var addrAligned = addr - addr%0x10;
 
 	this.realOffs = addrAligned;
-	this.moveCursor(addr-addrAligned, 0, false);
+
+	if (fixCursor == undefined || fixCursor == true)
+		this.moveCursor(addr-addrAligned, 0, false);
 
 	this.mem.loadAreaAround(addr);
 }
@@ -520,7 +648,7 @@ HexView.prototype.cursorOffset = function() {
 HexView.prototype.updateMarks = function() {
 	// info box
 	var labelOffs = this.element.getElementsByClassName("curOffs")[0];
-	labelOffs.innerHTML = "Offset: "+preZero(this.cursorOffset().toString(16).toUpperCase(), 8);
+	labelOffs.innerHTML = "Offset: 0x"+preZero(this.cursorOffset().toString(16).toUpperCase(), 8);
 
 	// draw cursor
 	for (var y = 0; y < this.height; y++) {
@@ -649,7 +777,7 @@ function init() {
 			console.log("got memory", e);
 		});*/
 
-		hView.goToAddr(0x400000-50);
+		hView.goToAddr(0x400000);
 	}
 
 	ws.onerror = function(error) {
@@ -672,6 +800,13 @@ function init() {
 	wlist.addPoint(0x00da82d4, "float32");
 	wlist.addPoint(0x00da82d0, "float32");
 
+	wlist.addPoint(0x0F0E9630, "float32");
+	wlist.addPoint(0x0F0E9630, "float32");
+	wlist.addPoint(0x0F0E9630, "float32");
+	wlist.addPoint(0x0F0E9630, "float32");
+	wlist.addPoint(0x0F0E9630, "float32");
+	wlist.addPoint(0x0F0E9630, "float32");
+	wlist.addPoint(0x0F0E9630, "float32");
 	wlist.addPoint(0x0F0E9630, "float32");
 
 	document.getElementById("wpointsframe").appendChild(wlist.element);
