@@ -496,10 +496,15 @@ function HexView(cols, rows, mem) {
 			case 34: // page down
 				self.goToAddr(self.realOffs+self.pageSize);	
 			break;
+			case 'M'.charCodeAt(0):
+				self.markCurRow();
+			break;
 		}
 
-		self.updateMarks();
+		self.update(false);
 	}
+
+	this.rowMarks = [];
 
 	this.addrLen = 8;
 
@@ -509,6 +514,26 @@ function HexView(cols, rows, mem) {
 	this.cursorY = 0;
 
 	this.build();
+}
+
+HexView.prototype.getRowMarks = function(start, size) {
+	var marks = [];
+	for (i in this.rowMarks) {
+		if (this.rowMarks[i] >= start && this.rowMarks[i] < start+size) {
+			marks.push(this.rowMarks[i]);
+		}
+	}
+	return marks;
+}
+
+HexView.prototype.markCurRow = function() {
+	var offs = this.rowOffset();
+	var i = this.rowMarks.indexOf(offs);
+
+	if (i != -1)
+		this.rowMarks.splice(i, 1); // unmark
+	else
+		this.rowMarks.push(this.rowOffset()); // mark
 }
 
 HexView.prototype.moveCursor = function(x, y, rel) {
@@ -571,6 +596,7 @@ HexView.prototype.build = function() {
 		field.innerHTML = preZero((y*16).toString(16), 8)
 		row.appendChild(field)
 		field.classList.add("fr"+y);
+		field.classList.add("addr");
 		
 		// spacer
 		var sp = document.createElement("td")
@@ -581,6 +607,7 @@ HexView.prototype.build = function() {
 		for (var x = 0; x < this.width; x++) {
 			var cell = document.createElement("td")
 			cell.classList.add("hc"+x+"_"+y);
+			cell.classList.add("hc");
 			row.appendChild(cell)
 			
 			cell.innerHTML = "XX"
@@ -595,6 +622,7 @@ HexView.prototype.build = function() {
 		for (var x = 0; x < 16; x++) {
 			var cell = document.createElement("td")
 			cell.classList.add("ac"+x+"_"+y);
+			cell.classList.add("ac");
 			row.appendChild(cell)
 			
 			cell.innerHTML = "_"
@@ -644,14 +672,21 @@ HexView.prototype.cursorOffset = function() {
 	return this.realOffs + this.cursorY*this.width + this.cursorX;
 }
 
+HexView.prototype.rowOffset = function() {
+	return this.realOffs + this.cursorY*this.width;
+}
+
 // only update colors and style of cells and info box
-HexView.prototype.updateMarks = function() {
+/*HexView.prototype.updateMarks = function() {
 	// info box
 	var labelOffs = this.element.getElementsByClassName("curOffs")[0];
 	labelOffs.innerHTML = "Offset: 0x"+preZero(this.cursorOffset().toString(16).toUpperCase(), 8);
 
 	// draw cursor
 	for (var y = 0; y < this.height; y++) {
+		var adCell = this.element.getElementsByClassName("fr"+y)[0];
+		adCell.style.backgroundColor = "";
+		
 		for (var x = 0; x < this.width; x++) {
 			var isCursor = this.cursorX == x && this.cursorY == y;
 
@@ -672,56 +707,98 @@ HexView.prototype.updateMarks = function() {
 			}
 		}
 	}
-}
 
-HexView.prototype.update = function() {
+	// row marks
+	var rowMarks = this.getRowMarks(this.realOffs, this.pageSize);
+
+	for (i in rowMarks) {
+		var id = (rowMarks[i]-this.realOffs)/0x10;
+		var cell = this.element.getElementsByClassName("fr"+id)[0];
+		cell.style.backgroundColor = "blue";
+	}
+}*/
+
+HexView.prototype.update = function(updData) {
+	if (updData == undefined)
+		updData = true;
+
 	if (this.realOffs == undefined)
 		return; // can't progress without defined offset
 
-	for (var y = 0; y < this.height; y++) {
-		for (var x = 0; x < this.width; x++) {
-			var isCursor = this.cursorX == x && this.cursorY == y;
-			var absOffs = this.realOffs+16*y+x;
+	// info box
+	var labelOffs = this.element.getElementsByClassName("curOffs")[0];
+	labelOffs.innerHTML = "Offset: 0x"+preZero(this.cursorOffset().toString(16).toUpperCase(), 8);
 
-			// address
-			var field = this.element.getElementsByClassName("fr"+y)[0];
-			field.innerHTML = preZero((this.realOffs+y*16).toString(16).toUpperCase(), 8)
-			
-			// hex cell
-			var cell = this.element.getElementsByClassName("hc"+x+"_"+y)[0];
 
-			var val = this.mem.data[absOffs];
-		
-			if (val == undefined)
-				cell.innerHTML = "XX"
-			else
-				cell.innerHTML = preZero(val.toString(16).toUpperCase(), 2);
+	var rowMarks = this.getRowMarks(this.realOffs, this.pageSize);
+	// addresses
+	var addrs = this.element.getElementsByClassName("addr");
+	for (var i = 0; i < addrs.length; i++) {
 
-			// ascii cell
-			var cell = this.element.getElementsByClassName("ac"+x+"_"+y)[0];
-			
-			var c;
-			if (val == undefined)
-				c = "_";
-			else if (val < 0x20 || val > 0x7f)
-				c = "."
-			else
-				c = String.fromCharCode(val)
-			cell.innerHTML = c
+		// style
+		addrs[i].style.backgroundColor = "";
+		// row marks
+		for (var cur = 0; cur < rowMarks.length; cur++) {
+			var id = (rowMarks[cur]-this.realOffs)/0x10;
+			if (id == i)
+				addrs[i].style.backgroundColor = "blue";
 		}
+
+		if (updData)
+			addrs[i].innerHTML = preZero((this.realOffs+i*this.width).toString(16).toUpperCase(), 8);
 	}
 
-	this.updateMarks();
+	// ascii & hex cells
+	var hcells = this.element.getElementsByClassName("hc");
+	var acells = this.element.getElementsByClassName("ac");
+	for (var i = 0; i < hcells.length; i++) {
+		var x = i%this.width;
+		var y = Math.floor(i/this.width);
+		var absOffs	= this.realOffs+i;
+		var val = this.mem.data[absOffs];
+		var hcell = hcells[i], acell = acells[i];
+	
+		// style
+		var isCursor = this.cursorX == x && this.cursorY == y;
+
+		if (isCursor) {
+			hcell.style.backgroundColor = "blue";
+			acell.style.backgroundColor = "blue";
+		} else {
+			hcell.style.backgroundColor = "";
+			acell.style.backgroundColor = "";
+		}
+
+		// data
+		if (!updData)
+			continue;
+
+		if (val == undefined)
+			hcell.innerHTML = "XX"
+		else
+			hcell.innerHTML = preZero(val.toString(16).toUpperCase(), 2);
+
+		var c;
+		if (val == undefined)
+			c = "_";
+		else if (val < 0x20 || val > 0x7f)
+			c = "."
+		else
+			c = String.fromCharCode(val)
+		acell.innerHTML = c
+	}
 }
 
 var netEvents = [];
-var curToken = 0;
+var curNetToken = 0;
 
 function getToken() {
-	return curToken++;
+	curNetToken = (curNetToken+1)%0xff;
+	return curNetToken;
 }
 
 function reqNetEvent(cmd, data, cb) {
+
 	var msgObj = {};
 	msgObj.token = getToken();
 	msgObj.cmd = cmd;
@@ -796,18 +873,6 @@ function init() {
 
 	
 	var wlist = new WatchPointsView();
-
-	wlist.addPoint(0x00da82d4, "float32");
-	wlist.addPoint(0x00da82d0, "float32");
-
-	wlist.addPoint(0x0F0E9630, "float32");
-	wlist.addPoint(0x0F0E9630, "float32");
-	wlist.addPoint(0x0F0E9630, "float32");
-	wlist.addPoint(0x0F0E9630, "float32");
-	wlist.addPoint(0x0F0E9630, "float32");
-	wlist.addPoint(0x0F0E9630, "float32");
-	wlist.addPoint(0x0F0E9630, "float32");
-	wlist.addPoint(0x0F0E9630, "float32");
 
 	document.getElementById("wpointsframe").appendChild(wlist.element);
 }
