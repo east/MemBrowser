@@ -33,6 +33,11 @@ function CmdPrompt() {
 
 	this.mode = "none";
 
+	// command history
+	this.cmds = [];
+	this.cmdCur = "";
+	this.cmdIndex = -1; // current buffer index
+
 	styleInputLine(this.input);
 	this.input.style.width = "550px";
 	//this.input.style.color = "transparent";
@@ -60,9 +65,42 @@ CmdPrompt.prototype.cmdExec = function(cmd) {
 
 	if (params[0] == "g")
 		this.hView.goToAddr(parseInt(params[1], 16));
-	else if(params[0] == "am") {
-		this.wList.addPoint(parseInt(params[2], 16), params[1]);
+	else if (params[0] == "am") {
+		var varType = params[1];
+		var addr;
+		if (params[2] != undefined)
+			addr = parseInt(params[2], 16);
+		else
+			addr = this.hView.cursorOffset(); // current offset
+
+		this.wList.addPoint(addr, params[1]);
 	}
+	else if (params[0] == "dm") {
+		var addr;
+		if (params[1] != undefined)
+			addr = parseInt(params[1], 16);
+		else
+			addr = this.hView.cursorOffset(); // current offset
+		this.wList.delWithAddr(addr);
+	}
+	else if (params[0] == "g+")
+		this.hView.goToAddr(parseInt(params[1], 16), true, true);
+	else if (params[0] == "g-")
+		this.hView.goToAddr(-parseInt(params[1], 16), true, true);
+}
+
+CmdPrompt.prototype.setCmdIndex = function(i) {
+
+	if (this.cmdIndex == -1)
+		// store previous command
+		this.cmdCur = this.input.value;
+
+	this.cmdIndex = clamp(i, -1, (this.cmds.length-1));
+
+	if (this.cmdIndex == -1)
+		this.input.value = this.cmdCur;
+	else
+		this.input.value = this.cmds[(this.cmds.length-1)-this.cmdIndex];
 }
 
 CmdPrompt.prototype.onKey = function(e) {
@@ -81,9 +119,17 @@ CmdPrompt.prototype.onKey = function(e) {
 			break;
 			case 13:
 				// execute command
+				this.cmds.push(this.input.value); // add command to history
 				this.cmdExec(this.input.value.substring(1));
 				// leave command mode
 				this.setMode("none");	
+			break;
+			
+			case 40: // arrow down
+				this.setCmdIndex(this.cmdIndex-1);
+			break;
+			case 38: // arrow up
+				this.setCmdIndex(this.cmdIndex+1);
 			break;
 		}
 	}
@@ -292,10 +338,6 @@ function WatchPointsView() {
 	this.list.run();
 }
 
-WatchPointsView.prototype.buildList = function() {
-
-}
-
 WatchPointsView.prototype.getSelection = function() {
 	var selection = [];
 	var b = this.table.getElementsByClassName("wcbox");
@@ -314,6 +356,28 @@ WatchPointsView.prototype.delSelection = function() {
 	for (var i = 0; i < sel.length; i++) {
 		// remove selected vars from list
 		this.list.removeId(sel[i].wId);
+	}
+
+	// clear table
+	while (this.table.firstChild.nextSibling)
+		this.table.removeChild(this.table.firstChild.nextSibling);
+
+
+	this.update();
+}
+
+WatchPointsView.prototype.delWithAddr = function(addr) {
+	var found = true;
+	
+	while (found) {
+		found = false;
+		for (var i = 0; i < this.list.vars.length; i++) {
+			if (this.list.vars[i].offs == addr)
+			{
+				this.list.removeId(this.list.vars[i].id);
+				found = true;
+			}
+		}
 	}
 
 	// clear table
@@ -672,7 +736,10 @@ HexView.prototype.moveCursor = function(x, y, rel) {
 	this.update(false);
 }
 
-HexView.prototype.goToAddr = function(addr, fixCursor) {
+HexView.prototype.goToAddr = function(addr, fixCursor, rel) {
+	if (rel != undefined && rel == true)
+		addr += this.realOffs; // relative address
+
 	var addrAligned = addr - addr%0x10;
 
 	this.realOffs = addrAligned;

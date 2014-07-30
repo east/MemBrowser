@@ -13,6 +13,7 @@ exec("xdotool search --name \"World of Warcraft\" getwindowpid", function (error
 
 	if (p.length == 2) {
 		procId = p[0];
+		console.log("wow pid", procId);
 		runSrv();
 	} else {
 		console.log("wow not found");
