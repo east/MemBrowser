@@ -87,6 +87,9 @@ CmdPrompt.prototype.cmdExec = function(cmd) {
 		this.hView.goToAddr(parseInt(params[1], 16), true, true);
 	else if (params[0] == "g-")
 		this.hView.goToAddr(-parseInt(params[1], 16), true, true);
+	else if (params[0] == "gptr") {
+		this.hView.goToAddr(this.hView.curDataPtr);	
+	}
 }
 
 CmdPrompt.prototype.setCmdIndex = function(i) {
@@ -234,10 +237,10 @@ WatchPoint.prototype.buildValueStr = function() {
 			this.valueStr = new String(dview.getUint32(0, true));
 		break;
 		case "int64":
-			this.valueStr = new String(dview.getInt64(0, true));
+			//this.valueStr = new String(dview.getInt64(0, true));
 		break;
 		case "uint64":
-			this.valueStr = new String(dview.getUint32(0, true));
+			//this.valueStr = new String(dview.getUint64(0, true));
 		break;
 		case "pointer":
 			this.valueStr = dview.getUint32(0, true).toString(16);
@@ -738,7 +741,7 @@ HexView.prototype.moveCursor = function(x, y, rel) {
 
 HexView.prototype.goToAddr = function(addr, fixCursor, rel) {
 	if (rel != undefined && rel == true)
-		addr += this.realOffs; // relative address
+		addr += this.cursorOffset(); // relative address
 
 	var addrAligned = addr - addr%0x10;
 
@@ -806,6 +809,10 @@ HexView.prototype.build = function() {
 		}
 	}
 
+	this.viewAddrs = this.element.getElementsByClassName("addr");
+	this.viewHCells = this.element.getElementsByClassName("hc");
+	this.viewACells = this.element.getElementsByClassName("ac");
+
 	// infobox
 	var row = document.createElement("tr");
 	tbl.appendChild(row);
@@ -813,10 +820,18 @@ HexView.prototype.build = function() {
 	cell.colSpan = "35";
 	row.appendChild(cell);
 
+	// cursor offset
 	var label = document.createElement("label");
 	label.classList.add("curOffs");
 
 	label.innerHTML = "Offset: 0x00000000"
+
+	cell.appendChild(label);
+	// pointer
+	label = document.createElement("label");
+	label.classList.add("curDataPtr");
+
+	label.innerHTML = " Ptr: 0x00000000"
 
 	cell.appendChild(label);
 
@@ -904,12 +919,22 @@ HexView.prototype.update = function(updData) {
 
 	// info box
 	var labelOffs = this.element.getElementsByClassName("curOffs")[0];
+	var labelDataPtr = this.element.getElementsByClassName("curDataPtr")[0];
+	// current offset
 	labelOffs.innerHTML = "Offset: 0x"+preZero(this.cursorOffset().toString(16).toUpperCase(), 8);
+	// current data pointer
+	var curOffs = this.cursorOffset();
+	var d = this.mem.data.slice(curOffs, curOffs+4);
+	if (d.length == 4) {
+		var dview = new DataView((new Uint8Array(d)).buffer);
+		this.curDataPtr = dview.getUint32(0, true);
+		labelDataPtr.innerHTML = " Ptr: 0x"+this.curDataPtr.toString(16).toUpperCase();
+	}
 
 
 	var rowMarks = this.getRowMarks(this.realOffs, this.pageSize);
 	// addresses
-	var addrs = this.element.getElementsByClassName("addr");
+	var addrs = this.viewAddrs;
 	for (var i = 0; i < addrs.length; i++) {
 
 		// style
@@ -926,8 +951,8 @@ HexView.prototype.update = function(updData) {
 	}
 
 	// ascii & hex cells
-	var hcells = this.element.getElementsByClassName("hc");
-	var acells = this.element.getElementsByClassName("ac");
+	var hcells = this.viewHCells;
+	var acells = this.viewACells;
 	for (var i = 0; i < hcells.length; i++) {
 		var x = i%this.width;
 		var y = Math.floor(i/this.width);
