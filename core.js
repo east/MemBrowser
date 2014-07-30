@@ -4,6 +4,126 @@ var winToken = 0;
 
 function newWinToken() { return winToken++; }
 
+function arraysEqual(arr1, arr2) {
+	return (arr1.length == arr2.length && arr1.every(function(u, i) { return u === arr2[i]; }));
+}
+
+function clamp(num, min, max) {
+	return Math.min(Math.max(num, min), max);
+}
+
+function preZero(str, num) {
+	var len = str.length;
+	for (var i = 0; i < num-len; i++)
+		str = "0"+str;
+	return str;
+}
+
+function styleInputLine(input) {
+	input.type = "text";
+	input.style.backgroundColor = "#000";
+	input.style.color = "#fff";
+	input.style.fontSize = "8pt";
+} 
+
+function CmdPrompt() {
+	this.element = document.createElement("div");
+	this.input  = document.createElement("input");
+	this.element.appendChild(this.input);
+
+	this.mode = "none";
+
+	styleInputLine(this.input);
+	this.input.style.width = "550px";
+	//this.input.style.color = "transparent";
+	//this.input.style.textShadow = "0 0 0 white";
+	//this.input.style.border = "none";
+	//this.input.style.outline = "none";
+
+	var self = this;
+	this.input.onkeydown = function(e) {
+		return self.onKey(e);
+	}
+}
+
+CmdPrompt.prototype.setMode = function(m) {
+	if (m == "none") {
+		this.input.value = "";
+	}
+	if (m == "cmd")
+		this.input.value = ":";
+	this.mode = m;
+}
+
+CmdPrompt.prototype.cmdExec = function(cmd) {
+	var params = cmd.split(" ");
+
+	if (params[0] == "g")
+		this.hView.goToAddr(parseInt(params[1], 16));
+	else if(params[0] == "am") {
+		this.wList.addPoint(parseInt(params[2], 16), params[1]);
+	}
+}
+
+CmdPrompt.prototype.onKey = function(e) {
+
+	if (this.mode == "none" && e.key == ":")
+	{
+		this.setMode("cmd"); // command mode
+		return false;
+	}
+	
+	if (this.mode == "cmd") {
+		switch (e.keyCode) {
+			case 27:
+				// leave current mode
+				this.setMode("none");
+			break;
+			case 13:
+				// execute command
+				this.cmdExec(this.input.value.substring(1));
+				// leave command mode
+				this.setMode("none");	
+			break;
+		}
+	}
+
+	if (this.mode == "none") {
+		switch (e.keyCode) {
+			case 40: // arrow down
+				this.hView.moveCursor(0, 1);
+			break;
+			case 38: // arrow up
+				this.hView.moveCursor(0, -1);
+			break;
+			case 39: // arrow right
+				this.hView.moveCursor(1, 0);
+			break;
+			case 37: // arrow left
+				this.hView.moveCursor(-1, 0);
+			break;
+			case 33: // page up
+				this.hView.goToAddr(this.hView.realOffs-this.hView.pageSize);	
+			break;
+			case 34: // page down
+				this.hView.goToAddr(this.hView.realOffs+this.hView.pageSize);	
+			break;
+			case 'M'.charCodeAt(0):
+				this.hView.markCurRow();
+			break;
+		}
+
+		return false;
+	}
+
+	if (this.input.value.length == 1 && e.keyCode == 8) {
+		// prevent removing cmd indicator ":"
+		return false;
+	}
+
+	return true;
+}
+
 function WatchPoint(wlist, offs, varType, id) {
 	this.wlist = wlist;
 	this.offs = offs;
@@ -29,21 +149,6 @@ function WatchPoint(wlist, offs, varType, id) {
 		default:
 			console.log("WatchPoint(): invalid varType", varType);
 	}
-}
-
-function arraysEqual(arr1, arr2) {
-	return (arr1.length == arr2.length && arr1.every(function(u, i) { return u === arr2[i]; }));
-}
-
-function clamp(num, min, max) {
-	return Math.min(Math.max(num, min), max);
-}
-
-function preZero(str, num) {
-	var len = str.length;
-	for (var i = 0; i < num-len; i++)
-		str = "0"+str;
-	return str;
 }
 
 WatchPoint.prototype.update = function() {
@@ -534,6 +639,7 @@ HexView.prototype.markCurRow = function() {
 		this.rowMarks.splice(i, 1); // unmark
 	else
 		this.rowMarks.push(this.rowOffset()); // mark
+	this.update(false);
 }
 
 HexView.prototype.moveCursor = function(x, y, rel) {
@@ -562,6 +668,8 @@ HexView.prototype.moveCursor = function(x, y, rel) {
 	}
 
 	this.cursorY = clamp(this.cursorY, 0, this.height-1);
+
+	this.update(false);
 }
 
 HexView.prototype.goToAddr = function(addr, fixCursor) {
@@ -573,6 +681,8 @@ HexView.prototype.goToAddr = function(addr, fixCursor) {
 		this.moveCursor(addr-addrAligned, 0, false);
 
 	this.mem.loadAreaAround(addr);
+
+	this.update();
 }
 
 HexView.prototype.memUpdate = function() {
@@ -836,9 +946,14 @@ function init() {
 
 	// set styles
 	document.body.style.fontFamily = "monospace";
-	
+
+	var cmdPrompt = new CmdPrompt();
+	document.getElementById("cpromptframe").appendChild(cmdPrompt.element);
+
 	var hView = new HexView(16, 20);
 	document.getElementById("hviewframe").appendChild(hView.element);
+
+	cmdPrompt.hView = hView;
 
 	// connect to server
 	ws = new WebSocket("ws://127.0.0.1:8888");
@@ -873,6 +988,7 @@ function init() {
 
 	
 	var wlist = new WatchPointsView();
+	cmdPrompt.wList = wlist;
 
 	document.getElementById("wpointsframe").appendChild(wlist.element);
 }
